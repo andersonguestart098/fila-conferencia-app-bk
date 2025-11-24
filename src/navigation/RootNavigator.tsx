@@ -1,54 +1,56 @@
 import React from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+
 import PedidosPendentesScreen from "../screens/PedidosPendentesScreen";
 import DetalhePedidoScreen from "../screens/DetalhePedidoScreen";
 import ConferenciaScreen from "../screens/ConferenciaScreen";
-import { DetalhePedido } from "../api/types/conferencia";
 import LoginScreen from "../screens/LoginScreen";
 
+import { DetalhePedido } from "../api/types/conferencia";
 
 export type RootStackParamList = {
-    Login: undefined;
-    PedidosPendentes: undefined;
-    DetalhePedido: { detalhePedido: DetalhePedido };
-    Conferencia: { detalhePedido: DetalhePedido; nuconf: number };
-  };
-  
-  
-  
+  Login: undefined;
+  PedidosPendentes: undefined;
+  DetalhePedido: { detalhePedido: DetalhePedido };
+  Conferencia: { detalhePedido: DetalhePedido; nuconf: number };
+};
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-export default function RootNavigator() {
+type Props = {
+  initialRouteName?: keyof RootStackParamList;
+};
+
+export default function RootNavigator({ initialRouteName = "Login" }: Props) {
   return (
     <NavigationContainer>
-      <Stack.Navigator initialRouteName="Login">
-  <Stack.Screen
-    name="Login"
-    component={LoginScreen}
-    options={{ headerShown: false }}
-  />
+      <Stack.Navigator
+        initialRouteName={initialRouteName}
+        screenOptions={{
+          headerShown: false,
+        }}
+      >
+        <Stack.Screen
+          name="Login"
+          component={LoginScreen}
+        />
 
-  <Stack.Screen
-    name="PedidosPendentes"
-    component={PedidosPendentesScreen}
-    options={{ title: "Pedidos a Conferir" }}
-  />
+        <Stack.Screen
+          name="PedidosPendentes"
+          component={PedidosPendentesScreen}
+        />
 
-  <Stack.Screen
-    name="DetalhePedido"
-    component={DetalhePedidoScreen}
-    options={{ title: "Detalhe do Pedido" }}
-  />
+        <Stack.Screen
+          name="DetalhePedido"
+          component={DetalhePedidoScreen}
+        />
 
-  <Stack.Screen
-    name="Conferencia"
-    component={ConferenciaScreen}
-    options={{ title: "Conferência" }}
-  />
-</Stack.Navigator>
-
+        <Stack.Screen
+          name="Conferencia"
+          component={ConferenciaScreen}
+        />
+      </Stack.Navigator>
     </NavigationContainer>
   );
 }

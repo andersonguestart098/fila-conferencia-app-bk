@@ -1,5 +1,5 @@
 // src/screens/LoginScreen.tsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -14,33 +14,77 @@ import { RootStackParamList } from "../navigation/RootNavigator";
 
 import { login, updatePushToken } from "../api/auth";
 import { setAuthToken } from "../api/client";
-import { registerForPushNotificationsAsync } from "../api/firebase/notifications";
+
+import * as SecureStore from "expo-secure-store";
+import messaging from "@react-native-firebase/messaging";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Login">;
 
 export default function LoginScreen({ navigation }: Props) {
   const [nome, setNome] = useState("");
   const [senha, setSenha] = useState("");
+  const [lembrar, setLembrar] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // 🔹 Carregar usuário/senha salvos
+  useEffect(() => {
+    (async () => {
+      try {
+        const savedNome = await SecureStore.getItemAsync("login_nome");
+        const savedSenha = await SecureStore.getItemAsync("login_senha");
+        const savedFlag = await SecureStore.getItemAsync("login_lembrar");
+
+        if (savedFlag === "true" && savedNome && savedSenha) {
+          setLembrar(true);
+          setNome(savedNome);
+          setSenha(savedSenha);
+        }
+      } catch (e) {
+        console.log("Erro ao carregar login salvo:", e);
+      }
+    })();
+  }, []);
 
   const handleLogin = async () => {
     try {
       setLoading(true);
 
-      // login no backend
       const resp = await login(nome, senha);
 
-      // salva JWT em memória + SecureStore
+      // Salva token
       await setAuthToken(resp.token);
 
-      // registra token push e envia pro backend com o NOME
-      const expoToken = await registerForPushNotificationsAsync();
-      if (expoToken) {
-        await updatePushToken(nome, expoToken);
+      // 🔹 Se checkbox marcado → salvar nome/senha
+      if (lembrar) {
+        await SecureStore.setItemAsync("login_nome", nome);
+        await SecureStore.setItemAsync("login_senha", senha);
+        await SecureStore.setItemAsync("login_lembrar", "true");
+      } else {
+        // Se não estiver marcado, apaga possíveis registros antigos
+        await SecureStore.deleteItemAsync("login_nome");
+        await SecureStore.deleteItemAsync("login_senha");
+        await SecureStore.deleteItemAsync("login_lembrar");
+      }
+
+      // 🔹 Registro do FCM
+      try {
+        const authStatus = await messaging().requestPermission();
+        const enabled =
+          authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
+          authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+
+        if (enabled) {
+          const fcmToken = await messaging().getToken();
+          console.log("FCM TOKEN OBTIDO:", fcmToken);
+
+          if (fcmToken) await updatePushToken(nome, fcmToken);
+        }
+      } catch (err) {
+        console.log("Erro ao registrar FCM:", err);
       }
 
       navigation.replace("PedidosPendentes");
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
       Alert.alert("Erro", "Falha no login. Verifique nome/senha.");
     } finally {
@@ -67,6 +111,15 @@ export default function LoginScreen({ navigation }: Props) {
         value={senha}
         onChangeText={setSenha}
       />
+
+      {/* 🔹 Checkbox simples */}
+      <TouchableOpacity
+        style={styles.row}
+        onPress={() => setLembrar((prev) => !prev)}
+      >
+        <View style={[styles.checkbox, lembrar && styles.checkboxOn]} />
+        <Text style={styles.checkboxText}>Lembrar usuário e senha</Text>
+      </TouchableOpacity>
 
       <TouchableOpacity
         style={[styles.button, loading && { opacity: 0.6 }]}
@@ -105,6 +158,29 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginBottom: 12,
   },
+
+  // Checkbox
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: "#0d9488",
+    marginRight: 8,
+  },
+  checkboxOn: {
+    backgroundColor: "#0d9488",
+  },
+  checkboxText: {
+    fontSize: 14,
+    color: "#333",
+  },
+
   button: {
     backgroundColor: "#0d9488",
     padding: 14,

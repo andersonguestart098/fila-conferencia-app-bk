@@ -4,40 +4,54 @@ import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 
 let authToken: string | null = null;
+const AUTH_TOKEN_KEY = "jwt";
 
 /**
  * Salva o token em memória e (se possível) no SecureStore.
  */
-export async function setAuthToken(token: string) {
+export async function setAuthToken(token: string | null) {
   authToken = token;
 
-  // só salva no SecureStore se NÃO estiver rodando no Expo Go
+  // só tenta usar SecureStore se NÃO estiver rodando no Expo Go
   if (Constants.executionEnvironment !== "storeClient") {
     try {
-      await SecureStore.setItemAsync("jwt", token);
+      if (token) {
+        await SecureStore.setItemAsync(AUTH_TOKEN_KEY, token);
+      } else {
+        await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
+      }
     } catch (e) {
-      console.warn("SecureStore indisponível, usando memória.");
+      console.warn("SecureStore indisponível, usando apenas memória.", e);
     }
   }
 }
 
 /**
  * Carrega o token do SecureStore ao iniciar o app.
+ * Retorna o token (ou null) e também seta em memória.
  */
-export async function loadStoredToken() {
-  try {
-    const stored = await SecureStore.getItemAsync("jwt");
-    if (stored) authToken = stored;
-  } catch (e) {
-    console.warn("SecureStore não disponível, continuando sem persistência.");
+export async function loadStoredToken(): Promise<string | null> {
+  // se não for StoreClient, tentamos buscar do SecureStore
+  if (Constants.executionEnvironment !== "storeClient") {
+    try {
+      const stored = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+      authToken = stored ?? null;
+      return authToken;
+    } catch (e) {
+      console.warn("SecureStore não disponível, continuando sem persistência.", e);
+      return authToken;
+    }
   }
+
+  // em Expo Go, só usamos o que estiver em memória (ou null)
+  return authToken;
 }
 
 /**
- * Axios instance
+ * Axios instance central da API
  */
 export const api = axios.create({
-  baseURL: "https://api-sankhya-fila-conferencia-6bbe82fb50b8.herokuapp.com/",
+  baseURL: "https://api-sankhya-fila-conferencia-6bbe82fb50b8.herokuapp.com",
   timeout: 10000,
 });
 

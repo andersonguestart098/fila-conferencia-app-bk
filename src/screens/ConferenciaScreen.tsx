@@ -1,3 +1,4 @@
+// src/screens/ConferenciaScreen.tsx
 import React, { useState } from "react";
 import {
   View,
@@ -11,7 +12,11 @@ import {
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/RootNavigator";
 import { DetalhePedido, ItemConferencia } from "../api/types/conferencia";
-import { finalizarConferencia } from "../api/conferencia";
+import {
+  finalizarConferencia,
+  finalizarConferenciaDivergente,
+} from "../api/conferencia";
+import Navbar from "../components/Navbar";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Conferencia">;
 
@@ -65,15 +70,29 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
     try {
       setSalvando(true);
 
-      // backend hoje espera só { nuconf, codUsuario }
-      await finalizarConferencia(nuconf, COD_USUARIO_EXEMPLO);
+      // verifica se há divergência (algum item com qtdConferida < qtdNeg)
+      const temDivergente = itens.some(
+        (i) => (i.qtdConferida ?? 0) < (i.qtdNeg ?? 0)
+      );
 
-      Alert.alert("Sucesso", "Conferência finalizada com sucesso!", [
-        {
-          text: "OK",
-          onPress: () => navigation.popToTop(),
-        },
-      ]);
+      if (temDivergente) {
+        await finalizarConferenciaDivergente(nuconf, COD_USUARIO_EXEMPLO);
+      } else {
+        await finalizarConferencia(nuconf, COD_USUARIO_EXEMPLO);
+      }
+
+      Alert.alert(
+        "Sucesso",
+        temDivergente
+          ? "Conferência finalizada com divergência."
+          : "Conferência finalizada com sucesso!",
+        [
+          {
+            text: "OK",
+            onPress: () => navigation.popToTop(),
+          },
+        ]
+      );
     } catch (e) {
       console.error(e);
       Alert.alert("Erro", "Erro ao finalizar conferência.");
@@ -92,15 +111,29 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
       </TouchableOpacity>
 
       <View style={styles.itemInfo}>
-        <Text style={styles.itemTitle}>Cod: {item.codProd}</Text>
-        <Text style={styles.itemSubtitle}>
-          Seq: {item.sequencia} | Vl. Unit: {item.vlrUnit}
+        <Text style={styles.itemTitle}>
+          Cod: {item.codProd} - {item.descricao}
         </Text>
-        <Text style={styles.itemSubtitle}>Esperado: {item.qtdNeg}</Text>
+
+        {/* linha com seq, valor unitário e unidade */}
+        <Text style={styles.itemSubtitle}>
+          Seq: {item.sequencia}
+        </Text>
+
+       {/* quantidade esperada com unidade */}
+        <Text style={[styles.itemSubtitle, { fontWeight: "bold" }]}>
+          Esperado: {item.qtdNeg}{" "}
+          <Text style={{ fontWeight: "bold" }}>{item.unidade}</Text>
+        </Text>
+
+
       </View>
 
       <View style={styles.qtdContainer}>
-        <Text style={styles.qtdLabel}>Qtd conf.</Text>
+      <Text style={styles.qtdLabel}>
+        Qtd conf. (<Text style={{ fontWeight: "bold" }}>{item.unidade}</Text>)
+      </Text>
+
         <TextInput
           style={styles.qtdInput}
           keyboardType="numeric"
@@ -115,15 +148,20 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Pedido #{detalhePedido.nunota}</Text>
-      <FlatList
-        data={itens}
-        keyExtractor={(item) =>
-          `${detalhePedido.nunota}-${item.sequencia}-${item.codProd}`
-        }
-        renderItem={renderItem}
-        contentContainerStyle={{ paddingBottom: 100 }}
-      />
+      <Navbar title="Conferência" showBack />
+
+      <View style={styles.content}>
+        <Text style={styles.header}>Pedido #{detalhePedido.nunota}</Text>
+
+        <FlatList
+          data={itens}
+          keyExtractor={(item) =>
+            `${detalhePedido.nunota}-${item.sequencia}-${item.codProd}`
+          }
+          renderItem={renderItem}
+          contentContainerStyle={{ paddingBottom: 100 }}
+        />
+      </View>
 
       <TouchableOpacity
         style={[styles.button, salvando && { opacity: 0.6 }]}
@@ -139,7 +177,11 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: "#f5f5f5" },
+  container: { flex: 1, backgroundColor: "#f5f5f5" },
+  content: {
+    flex: 1,
+    padding: 16,
+  },
   header: { fontSize: 18, fontWeight: "bold", marginBottom: 12 },
   itemRow: {
     flexDirection: "row",
@@ -155,13 +197,13 @@ const styles = StyleSheet.create({
     height: 26,
     borderRadius: 13,
     borderWidth: 2,
-    borderColor: "#0d9488",
+    borderColor: "#66CC66",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 10,
   },
   checkCircleOn: {
-    backgroundColor: "#0d9488",
+    backgroundColor: "#66CC66",
   },
   checkInner: {
     width: 12,
@@ -175,8 +217,8 @@ const styles = StyleSheet.create({
   qtdContainer: { alignItems: "center", marginLeft: 8 },
   qtdLabel: { fontSize: 12, marginBottom: 4 },
   qtdInput: {
-    width: 60,
-    height: 32,
+    width: 90,
+    height: 38,
     borderWidth: 1,
     borderColor: "#ccc",
     borderRadius: 6,
@@ -186,14 +228,15 @@ const styles = StyleSheet.create({
   },
   button: {
     position: "absolute",
-    bottom: 20,
+    bottom: 60,        // 🔥 antes era 20 – agora sobe um pouco
     left: 16,
     right: 16,
-    backgroundColor: "#0d9488",
+    backgroundColor: "#66CC66",
     padding: 16,
     borderRadius: 999,
     alignItems: "center",
     elevation: 3,
   },
+  
   buttonText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
 });

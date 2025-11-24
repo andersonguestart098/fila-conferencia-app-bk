@@ -5,15 +5,33 @@ import {
   ActivityIndicator,
   StyleSheet,
   TouchableOpacity,
+  ScrollView,
+  Alert, // 👈 IMPORTANTE
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/RootNavigator";
 import { DetalhePedido } from "../api/types/conferencia";
 import { iniciarConferencia } from "../api/conferencia";
+import Navbar from "../components/Navbar";
 
 type Props = NativeStackScreenProps<RootStackParamList, "DetalhePedido">;
 
-const COD_USUARIO_EXEMPLO = 42; // depois pega do login/autenticação
+const COD_USUARIO_EXEMPLO = 42;
+
+// Mapa de código → descrição legível
+const statusMap: Record<string, string> = {
+  A: "Em andamento",
+  AC: "Aguardando conferência",
+  AL: "Aguardando liberação p/ conferência",
+  C: "Aguardando liberação de corte",
+  D: "Finalizada divergente",
+  F: "Finalizada OK",
+  R: "Aguardando recontagem",
+  RA: "Recontagem em andamento",
+  RD: "Recontagem finalizada divergente",
+  RF: "Recontagem finalizada OK",
+  Z: "Aguardando finalização",
+};
 
 export default function DetalhePedidoScreen({ route, navigation }: Props) {
   const { detalhePedido } = route.params;
@@ -22,14 +40,12 @@ export default function DetalhePedidoScreen({ route, navigation }: Props) {
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
-  const handleIrParaConferencia = async () => {
+  const executarInicioConferencia = async () => {
     try {
       setLoading(true);
       setErro(null);
 
-      // chama /iniciar apenas aqui
       const resp = await iniciarConferencia(detalhe.nunota, COD_USUARIO_EXEMPLO);
-      // resp esperado: { nuconf, nunotaOrig }
 
       navigation.navigate("Conferencia", {
         detalhePedido: detalhe,
@@ -40,6 +56,28 @@ export default function DetalhePedidoScreen({ route, navigation }: Props) {
       setErro("Erro ao iniciar conferência.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleIrParaConferencia = () => {
+    // Se já está em andamento, avisa antes
+    if (detalhe.statusConferencia === "A") {
+      Alert.alert(
+        "Conferência em andamento",
+        "Já existe uma conferência em andamento para este pedido. Deseja continuar mesmo assim?",
+        [
+          { text: "Cancelar", style: "cancel" },
+          {
+            text: "Continuar",
+            style: "destructive",
+            onPress: () => {
+              executarInicioConferencia();
+            },
+          },
+        ]
+      );
+    } else {
+      executarInicioConferencia();
     }
   };
 
@@ -73,28 +111,77 @@ export default function DetalhePedidoScreen({ route, navigation }: Props) {
     0
   );
 
+  const itensResumo = detalhe.itens.slice(0, 10);
+  const itensRestantes = totalItens - itensResumo.length;
+
+  const statusDescricao =
+    statusMap[detalhe.statusConferencia] ||
+    detalhe.statusConferencia ||
+    "-";
+
   return (
     <View style={styles.container}>
-      <View style={styles.card}>
-        <Text style={styles.title}>Pedido #{detalhe.nunota}</Text>
-        <Text>Status: {detalhe.statusConferencia}</Text>
-        <Text>Total de Itens: {totalItens}</Text>
-        <Text>Total de Quantidade: {totalQuantidade}</Text>
-      </View>
+      {/* 🔥 Navbar no topo */}
+      <Navbar title={`Pedido #${detalhe.nunota}`} showBack />
 
-      <TouchableOpacity
-        style={styles.button}
-        onPress={handleIrParaConferencia}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
       >
-        <Text style={styles.buttonText}>Iniciar Conferência</Text>
-      </TouchableOpacity>
+        <View style={styles.card}>
+          <Text style={styles.label}>Status: {statusDescricao}</Text>
+          <Text style={styles.label}>Total de itens: {totalItens}</Text>
+          <Text style={styles.label}>
+            Total de quantidade: {totalQuantidade}
+          </Text>
+
+          {/* RESUMO */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Resumo dos produtos</Text>
+
+            {itensResumo.map((item) => (
+              <View
+                key={`${item.sequencia}-${item.codProd}`}
+                style={styles.prodRow}
+              >
+                <Text style={styles.prodMain}>
+                  {item.codProd} · {item.descricao}
+                </Text>
+                <Text style={styles.prodQty}>Qtd: {item.qtdNeg}</Text>
+              </View>
+            ))}
+
+            {itensRestantes > 0 && (
+              <Text style={styles.moreText}>+ {itensRestantes} itens...</Text>
+            )}
+          </View>
+        </View>
+      </ScrollView>
+
+      {/* BOTÃO FIXO */}
+      <View style={styles.footer}>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={handleIrParaConferencia}
+        >
+          <Text style={styles.buttonText}>Iniciar Conferência</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: "#f5f5f5" },
+  container: { flex: 1, backgroundColor: "#f5f5f5" },
+
+  scroll: { flex: 1 },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 120,
+  },
+
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
+
   card: {
     backgroundColor: "#fff",
     padding: 16,
@@ -102,12 +189,50 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     elevation: 2,
   },
-  title: { fontWeight: "bold", fontSize: 18, marginBottom: 8 },
+  label: { fontSize: 14, marginBottom: 4 },
+
+  section: {
+    marginTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#eee",
+    paddingTop: 12,
+  },
+  sectionTitle: {
+    fontWeight: "bold",
+    fontSize: 16,
+    marginBottom: 8,
+  },
+
+  prodRow: {
+    marginBottom: 6,
+  },
+  prodMain: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  prodQty: {
+    fontSize: 12,
+    color: "#555",
+  },
+  moreText: {
+    marginTop: 4,
+    fontSize: 12,
+    color: "#888",
+  },
+
+  footer: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    bottom: 20,
+  },
   button: {
-    backgroundColor: "#0d9488",
+    backgroundColor: "#66CC66",
     padding: 16,
     borderRadius: 999,
     alignItems: "center",
+    elevation: 3,
+    bottom: 60, 
   },
   buttonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
 });
