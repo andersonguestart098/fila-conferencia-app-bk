@@ -1,3 +1,4 @@
+// src/screens/PedidosPendentesScreen.tsx
 import React, { useEffect, useState } from "react";
 import {
   View,
@@ -14,6 +15,8 @@ import { DetalhePedido } from "../api/types/conferencia";
 import { buscarPedidosPendentes } from "../api/conferencia";
 import Navbar from "../components/Navbar";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { isOfflineError } from "../api/client";
+import { logout } from "../api/auth";
 
 type Props = NativeStackScreenProps<RootStackParamList, "PedidosPendentes">;
 
@@ -55,17 +58,54 @@ export default function PedidosPendentesScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
+  const handleLogout = async () => {
+    await logout();
+    navigation.reset({
+      index: 0,
+      routes: [{ name: "Login" }],
+    });
+  };
+  
+
+  // 🔄 botão de tentar novamente / refresh manual
+  const handleRefresh = async () => {
+    try {
+      setLoading(true);
+      setErro(null); // limpa erro anterior
+
+      const atualizados = await buscarPedidosPendentes();
+      setPedidos(atualizados);
+    } catch (e) {
+      console.log("Erro ao recarregar pedidos:", e);
+
+      if (isOfflineError(e)) {
+        setErro("Você está offline. Verifique sua conexão com a internet.");
+      } else {
+        setErro("Erro ao carregar pedidos.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     let ativo = true;
 
     const carregar = async () => {
       try {
         setLoading(true);
+        setErro(null); // limpa erro anterior
         const atualizados = await buscarPedidosPendentes();
         if (ativo) setPedidos(atualizados);
       } catch (e) {
         console.log("Erro ao carregar pedidos:", e);
-        if (ativo) setErro("Erro ao carregar pedidos.");
+        if (!ativo) return;
+
+        if (isOfflineError(e)) {
+          setErro("Você está offline. Verifique sua conexão com a internet.");
+        } else {
+          setErro("Erro ao carregar pedidos.");
+        }
       } finally {
         if (ativo) setLoading(false);
       }
@@ -77,7 +117,15 @@ export default function PedidosPendentesScreen({ navigation }: Props) {
       try {
         const atualizados = await buscarPedidosPendentes();
         if (ativo) setPedidos(atualizados);
-      } catch {}
+      } catch (e) {
+        console.log("Erro ao atualizar pedidos:", e);
+        if (!ativo) return;
+
+        if (isOfflineError(e)) {
+          setErro("Você está offline. Verifique sua conexão com a internet.");
+        }
+        // Mantém a lista antiga enquanto está offline
+      }
     }, 5000);
 
     return () => {
@@ -103,13 +151,26 @@ export default function PedidosPendentesScreen({ navigation }: Props) {
     return (
       <View style={styles.center}>
         <Text style={styles.errorText}>{erro}</Text>
+
+        <TouchableOpacity
+          style={styles.refreshButton}
+          onPress={handleRefresh}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.refreshButtonText}>Tentar novamente</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <Navbar title="Conferência" showBack={false} />
+      <Navbar
+  title="Conferência"
+  showBack={false}
+  onLogout={handleLogout}
+/>
+
 
       <FlatList
         data={pedidos}
@@ -119,11 +180,26 @@ export default function PedidosPendentesScreen({ navigation }: Props) {
           const emConferencia =
             item.statusConferencia === "A" && !!item.nomeConferente;
 
-          const statusDescricao =
-            statusMap[item.statusConferencia] || "-";
-
+          const statusDescricao = statusMap[item.statusConferencia] || "-";
           const colors =
             statusColors[item.statusConferencia] || statusColors.AL;
+
+            const nroUnico = item.nunota;
+            const nroNota = item.numNota ?? "-";
+
+            const nomeParcCurto =
+            item.nomeParc && item.nomeParc.length > 28
+              ? item.nomeParc.slice(0, 28) + "..."
+              : item.nomeParc ?? "";
+
+              <TouchableOpacity
+                onPress={handleLogout}
+                style={styles.logoutButton}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.logoutText}>Sair</Text>
+              </TouchableOpacity>
+
 
           return (
             <TouchableOpacity
@@ -144,8 +220,20 @@ export default function PedidosPendentesScreen({ navigation }: Props) {
                     style={{ marginRight: 10 }}
                   />
                   <View>
-                    <Text style={styles.pedidoLabel}>Pedido</Text>
-                    <Text style={styles.pedidoNumber}>#{item.nunota}</Text>
+                  <Text style={styles.pedidoLabel}>Pedido</Text>
+                  <Text style={styles.pedidoNumber} numberOfLines={2}>
+                    Nro.Único: #{nroUnico} / Nro.Nota: #{nroNota}
+                  </Text>
+
+                  {item.nomeParc && (
+                    <Text
+                      style={styles.pedidoCliente}
+                      numberOfLines={1}
+                    >
+                      {nomeParcCurto}
+                    </Text>
+                  )}
+
                   </View>
                 </View>
 
@@ -250,8 +338,23 @@ const styles = StyleSheet.create({
   errorText: {
     marginTop: 12,
     fontSize: 16,
-    color: "#D11A2A",
+    color: "black",
     fontWeight: "600",
+    textAlign: "center",
+    paddingHorizontal: 24,
+  },
+
+  refreshButton: {
+    marginTop: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: "#66CC66",
+  },
+  refreshButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+    fontSize: 14,
   },
 
   listContent: {
@@ -290,7 +393,7 @@ const styles = StyleSheet.create({
   },
 
   pedidoLabel: {
-    fontSize: 11,
+    fontSize: 15,
     color: "#9CA3AF",
     fontWeight: "500",
     textTransform: "uppercase",
@@ -298,9 +401,21 @@ const styles = StyleSheet.create({
   },
 
   pedidoNumber: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+  },
+
+  pedidoParc: {
     fontSize: 18,
     fontWeight: "600",
     color: "#111827",
+  },
+
+  pedidoCliente: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 2,
   },
 
   avatar: {
@@ -396,4 +511,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#6B7280",
   },
+  logoutButton: {
+    position: "absolute",
+    top: 16,
+    right: 16,
+    backgroundColor: "#EF4444",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    zIndex: 999,
+  },
+  
+  logoutText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  
 });

@@ -6,7 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert, // 👈 IMPORTANTE
+  Alert,
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/RootNavigator";
@@ -119,6 +119,9 @@ export default function DetalhePedidoScreen({ route, navigation }: Props) {
     detalhe.statusConferencia ||
     "-";
 
+  // 🔒 Não permitir iniciar conferência se já estiver finalizada OK
+  const isFinalizadaOk = detalhe.statusConferencia === "F";
+
   return (
     <View style={styles.container}>
       {/* 🔥 Navbar no topo */}
@@ -161,10 +164,16 @@ export default function DetalhePedidoScreen({ route, navigation }: Props) {
       {/* BOTÃO FIXO */}
       <View style={styles.footer}>
         <TouchableOpacity
-          style={styles.button}
-          onPress={handleIrParaConferencia}
+          style={[
+            styles.button,
+            isFinalizadaOk && styles.buttonDisabled,
+          ]}
+          onPress={!isFinalizadaOk ? handleIrParaConferencia : undefined}
+          disabled={isFinalizadaOk}
         >
-          <Text style={styles.buttonText}>Iniciar Conferência</Text>
+          <Text style={styles.buttonText}>
+            {isFinalizadaOk ? "Conferência finalizada" : "Iniciar Conferência"}
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -232,7 +241,11 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: "center",
     elevation: 3,
-    bottom: 60, 
+    bottom: 60,
+  },
+  buttonDisabled: {
+    backgroundColor: "#CBD5E1",
+    elevation: 0,
   },
   buttonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
 });

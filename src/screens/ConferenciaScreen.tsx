@@ -11,20 +11,18 @@ import {
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/RootNavigator";
-import { DetalhePedido, ItemConferencia } from "../api/types/conferencia";
+import {
+  DetalhePedido,
+  ItemConferenciaUI, // 👈 já vem com qtdConferida + conferido
+} from "../api/types/conferencia";
 import {
   finalizarConferencia,
   finalizarConferenciaDivergente,
 } from "../api/conferencia";
 import Navbar from "../components/Navbar";
+import { Ionicons } from "@expo/vector-icons";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Conferencia">;
-
-// tipo interno da tela: ItemConferencia + campos de UI
-type ItemConferenciaUI = ItemConferencia & {
-  qtdConferida: number;
-  conferido: boolean;
-};
 
 const COD_USUARIO_EXEMPLO = 42; // depois pega do login/autenticação
 
@@ -66,7 +64,19 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
     );
   };
 
+  // todos os itens precisam estar conferidos p/ liberar o botão
+  const todosConferidos =
+    itens.length > 0 && itens.every((i) => i.conferido === true);
+
   const handleFinalizar = async () => {
+    if (!todosConferidos) {
+      Alert.alert(
+        "Atenção",
+        "Marque todos os itens como conferidos antes de finalizar."
+      );
+      return;
+    }
+
     try {
       setSalvando(true);
 
@@ -76,7 +86,13 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
       );
 
       if (temDivergente) {
-        await finalizarConferenciaDivergente(nuconf, COD_USUARIO_EXEMPLO);
+        // 👇 agora envia também a nunotaOrig e os itens pro backend
+        await finalizarConferenciaDivergente(
+          nuconf,
+          COD_USUARIO_EXEMPLO,
+          detalhePedido.nunota,
+          itens
+        );
       } else {
         await finalizarConferencia(nuconf, COD_USUARIO_EXEMPLO);
       }
@@ -104,10 +120,15 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
   const renderItem = ({ item }: { item: ItemConferenciaUI }) => (
     <View style={styles.itemRow}>
       <TouchableOpacity
-        style={[styles.checkCircle, item.conferido && styles.checkCircleOn]}
+        style={[
+          styles.checkCircle,
+          item.conferido && styles.checkCircleOn,
+        ]}
         onPress={() => toggleConferido(item.codProd, item.sequencia)}
       >
-        {item.conferido && <View style={styles.checkInner} />}
+        {item.conferido && (
+          <Ionicons name="checkmark" size={18} color="#fff" />
+        )}
       </TouchableOpacity>
 
       <View style={styles.itemInfo}>
@@ -116,23 +137,19 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
         </Text>
 
         {/* linha com seq, valor unitário e unidade */}
-        <Text style={styles.itemSubtitle}>
-          Seq: {item.sequencia}
-        </Text>
+        <Text style={styles.itemSubtitle}>Seq: {item.sequencia}</Text>
 
-       {/* quantidade esperada com unidade */}
+        {/* quantidade esperada com unidade */}
         <Text style={[styles.itemSubtitle, { fontWeight: "bold" }]}>
           Esperado: {item.qtdNeg}{" "}
           <Text style={{ fontWeight: "bold" }}>{item.unidade}</Text>
         </Text>
-
-
       </View>
 
       <View style={styles.qtdContainer}>
-      <Text style={styles.qtdLabel}>
-        Qtd conf. (<Text style={{ fontWeight: "bold" }}>{item.unidade}</Text>)
-      </Text>
+        <Text style={styles.qtdLabel}>
+          Qtd conf. (<Text style={{ fontWeight: "bold" }}>{item.unidade}</Text>)
+        </Text>
 
         <TextInput
           style={styles.qtdInput}
@@ -146,12 +163,20 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
     </View>
   );
 
+  // número “bonito” pro cabeçalho: usa numNota se vier, senão nunota
+  const numeroExibicao = (detalhePedido as any).numNota ?? detalhePedido.nunota;
+  const nomeParc = (detalhePedido as any).nomeParc;
+
+  const buttonDisabled = salvando || !todosConferidos;
+
   return (
     <View style={styles.container}>
       <Navbar title="Conferência" showBack />
 
       <View style={styles.content}>
-        <Text style={styles.header}>Pedido #{detalhePedido.nunota}</Text>
+        <Text style={styles.header}>Pedido #{numeroExibicao}</Text>
+
+        {nomeParc && <Text style={styles.subHeader}>{nomeParc}</Text>}
 
         <FlatList
           data={itens}
@@ -164,9 +189,12 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
       </View>
 
       <TouchableOpacity
-        style={[styles.button, salvando && { opacity: 0.6 }]}
+        style={[
+          styles.button,
+          buttonDisabled && styles.buttonDisabled,
+        ]}
         onPress={handleFinalizar}
-        disabled={salvando}
+        disabled={buttonDisabled}
       >
         <Text style={styles.buttonText}>
           {salvando ? "Salvando..." : "Finalizar Conferência"}
@@ -182,7 +210,12 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
   },
-  header: { fontSize: 18, fontWeight: "bold", marginBottom: 12 },
+  header: { fontSize: 18, fontWeight: "bold", marginBottom: 4 },
+  subHeader: {
+    fontSize: 14,
+    color: "#555",
+    marginBottom: 12,
+  },
   itemRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -193,23 +226,18 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   checkCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 36,
+    height: 36,
+    borderRadius: 16,
     borderWidth: 2,
     borderColor: "#66CC66",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 10,
+    backgroundColor: "#ffffff",
   },
   checkCircleOn: {
     backgroundColor: "#66CC66",
-  },
-  checkInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: "#fff",
   },
   itemInfo: { flex: 1 },
   itemTitle: { fontWeight: "bold" },
@@ -228,7 +256,7 @@ const styles = StyleSheet.create({
   },
   button: {
     position: "absolute",
-    bottom: 60,        // 🔥 antes era 20 – agora sobe um pouco
+    bottom: 60,
     left: 16,
     right: 16,
     backgroundColor: "#66CC66",
@@ -237,6 +265,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     elevation: 3,
   },
-  
+  buttonDisabled: {
+    backgroundColor: "#A3E0A3",
+    opacity: 0.7,
+  },
   buttonText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
 });

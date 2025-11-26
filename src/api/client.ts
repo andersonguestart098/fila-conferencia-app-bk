@@ -6,13 +6,25 @@ import Constants from "expo-constants";
 let authToken: string | null = null;
 const AUTH_TOKEN_KEY = "jwt";
 
-/**
- * Salva o token em memória e (se possível) no SecureStore.
- */
+// 🔥 helper p/ saber se é erro de conexão/offline
+export function isOfflineError(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) return false;
+
+  if (!error.response) return true;
+
+  if (
+    error.code === "ECONNABORTED" ||
+    (error.message || "").toLowerCase().includes("network error")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export async function setAuthToken(token: string | null) {
   authToken = token;
 
-  // só tenta usar SecureStore se NÃO estiver rodando no Expo Go
   if (Constants.executionEnvironment !== "storeClient") {
     try {
       if (token) {
@@ -26,38 +38,29 @@ export async function setAuthToken(token: string | null) {
   }
 }
 
-/**
- * Carrega o token do SecureStore ao iniciar o app.
- * Retorna o token (ou null) e também seta em memória.
- */
 export async function loadStoredToken(): Promise<string | null> {
-  // se não for StoreClient, tentamos buscar do SecureStore
   if (Constants.executionEnvironment !== "storeClient") {
     try {
       const stored = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
       authToken = stored ?? null;
       return authToken;
     } catch (e) {
-      console.warn("SecureStore não disponível, continuando sem persistência.", e);
+      console.warn(
+        "SecureStore não disponível, continuando sem persistência.",
+        e
+      );
       return authToken;
     }
   }
-
-  // em Expo Go, só usamos o que estiver em memória (ou null)
   return authToken;
 }
 
-/**
- * Axios instance central da API
- */
+// 👇 instancia principal do Axios que o app todo vai usar
 export const api = axios.create({
-  baseURL: "https://api-sankhya-fila-conferencia-6bbe82fb50b8.herokuapp.com",
+  baseURL: "https://api-sankhya-fila-conferencia-6bbe82fb50b8.herokuapp.com", // 👈 IP do NOTE, SEM /api aqui
   timeout: 10000,
 });
 
-/**
- * Interceptor síncrono — usa token que está em memória
- */
 api.interceptors.request.use((config) => {
   if (authToken) {
     config.headers = config.headers || {};
@@ -65,3 +68,5 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
+
+export default api;

@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  Image,
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/RootNavigator";
@@ -17,6 +18,7 @@ import { setAuthToken } from "../api/client";
 
 import * as SecureStore from "expo-secure-store";
 import messaging from "@react-native-firebase/messaging";
+import { Ionicons } from "@expo/vector-icons";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Login">;
 
@@ -25,6 +27,7 @@ export default function LoginScreen({ navigation }: Props) {
   const [senha, setSenha] = useState("");
   const [lembrar, setLembrar] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [mostrarSenha, setMostrarSenha] = useState(false);
 
   // 🔹 Carregar usuário/senha salvos
   useEffect(() => {
@@ -94,30 +97,64 @@ export default function LoginScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Login Conferente</Text>
+      {/* Logo no lugar do título */}
+      <View style={styles.logoContainer}>
+        <Image
+          source={require("../../assets/logo.png")}
+          style={styles.logo}
+          resizeMode="contain"
+        />
+      </View>
 
       <TextInput
         style={styles.input}
         placeholder="Nome"
+        placeholderTextColor="#9CA3AF"
         autoCapitalize="none"
         value={nome}
         onChangeText={setNome}
       />
 
-      <TextInput
-        style={styles.input}
-        placeholder="Senha"
-        secureTextEntry
-        value={senha}
-        onChangeText={setSenha}
-      />
+      {/* Input de senha com botão de mostrar/ocultar */}
+      <View style={styles.passwordWrapper}>
+        <TextInput
+          style={styles.passwordInput}
+          placeholder="Senha"
+          placeholderTextColor="#9CA3AF"
+          secureTextEntry={!mostrarSenha}
+          value={senha}
+          onChangeText={setSenha}
+          autoCapitalize="none"
+        />
+        <TouchableOpacity
+          style={styles.eyeButton}
+          onPress={() => setMostrarSenha((prev) => !prev)}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name={mostrarSenha ? "eye-off-outline" : "eye-outline"}
+            size={22}
+            color="#6B7280"
+          />
+        </TouchableOpacity>
+      </View>
 
-      {/* 🔹 Checkbox simples */}
+      {/* 🔹 Checkbox lembrar */}
       <TouchableOpacity
         style={styles.row}
         onPress={() => setLembrar((prev) => !prev)}
+        activeOpacity={0.8}
       >
-        <View style={[styles.checkbox, lembrar && styles.checkboxOn]} />
+        <View
+          style={[
+            styles.checkbox,
+            lembrar && styles.checkboxOn,
+          ]}
+        >
+          {lembrar && (
+            <Ionicons name="checkmark" size={16} color="#fff" />
+          )}
+        </View>
         <Text style={styles.checkboxText}>Lembrar usuário e senha</Text>
       </TouchableOpacity>
 
@@ -125,6 +162,7 @@ export default function LoginScreen({ navigation }: Props) {
         style={[styles.button, loading && { opacity: 0.6 }]}
         onPress={handleLogin}
         disabled={loading}
+        activeOpacity={0.85}
       >
         {loading ? (
           <ActivityIndicator color="#fff" />
@@ -141,14 +179,18 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     padding: 24,
-    backgroundColor: "#f5f5f5",
+    backgroundColor: "#ffffff",
   },
-  title: {
-    fontSize: 22,
-    fontWeight: "bold",
-    marginBottom: 24,
-    textAlign: "center",
+
+  logoContainer: {
+    alignItems: "center",
+    marginBottom: 32,
   },
+  logo: {
+    width: 150,
+    height: 150,
+  },
+
   input: {
     backgroundColor: "#fff",
     borderRadius: 8,
@@ -157,6 +199,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     marginBottom: 12,
+    color: "#111827",
+  },
+
+  // Wrapper do input de senha
+  passwordWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  passwordInput: {
+    flex: 1,
+    paddingVertical: 10,
+    color: "#111827",
+  },
+  eyeButton: {
+    paddingLeft: 8,
+    paddingVertical: 4,
   },
 
   // Checkbox
@@ -168,13 +232,17 @@ const styles = StyleSheet.create({
   checkbox: {
     width: 22,
     height: 22,
-    borderRadius: 4,
+    borderRadius: 6,
     borderWidth: 2,
-    borderColor: "#0d9488",
+    borderColor: "#66CC66",
     marginRight: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
   },
   checkboxOn: {
-    backgroundColor: "#0d9488",
+    backgroundColor: "#66CC66",
+    borderColor: "#66CC66",
   },
   checkboxText: {
     fontSize: 14,
@@ -182,7 +250,7 @@ const styles = StyleSheet.create({
   },
 
   button: {
-    backgroundColor: "#0d9488",
+    backgroundColor: "#66CC66",
     padding: 14,
     borderRadius: 999,
     alignItems: "center",

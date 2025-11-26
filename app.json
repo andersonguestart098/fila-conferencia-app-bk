@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "fila-conferencia-app",
-    "slug": "fila-conferencia-app",
+    "name": "Fila Conferência Cemear",
+    "slug": "fila-conferencia-app", 
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -9,8 +9,8 @@
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "resizeMode": "cover",
+      "backgroundColor": "#66CC66"
     },
     "ios": {
       "supportsTablet": true
@@ -23,6 +23,7 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.theanderson98.filaconferenciaapp",
+      "versionCode": 4,
       "googleServicesFile": "./google-services.json"
     },
     "web": {

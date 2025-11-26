@@ -1,6 +1,7 @@
 // src/api/auth.ts
 import { api } from "./client";
 import { AuthResponse } from "./types/auth";
+import { setAuthToken } from "./client";
 
 const API_BASE = "/api"; // vamos usar em combinação com api (que já tem baseURL)
 
@@ -35,4 +36,8 @@ export async function register(
     avatarUrl,
   });
   return resp.data;
+}
+
+export async function logout() {
+  await setAuthToken(null);
 }

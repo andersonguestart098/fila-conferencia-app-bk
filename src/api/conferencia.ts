@@ -1,19 +1,33 @@
 // src/api/conferencia.ts
-import { api } from "./client";
-import { DetalhePedido, ConferenciaCriada } from "./types/conferencia";
+import api from "./client"; // 👈 usa o default export que acabamos de configurar
+import {
+  DetalhePedido,
+  ConferenciaCriada,
+  ItemConferenciaUI,
+} from "./types/conferencia";
 
 const BASE_PATH = "/api/conferencia";
 
+/**
+ * Busca pedidos pendentes de conferência, paginados.
+ */
 export async function buscarPedidosPendentes(): Promise<DetalhePedido[]> {
-  const resp = await api.get<DetalhePedido[]>(`${BASE_PATH}/pedidos-pendentes`, {
-    params: {
-      page: 0,
-      pageSize: 50,
-    },
-  });
+  const resp = await api.get<DetalhePedido[]>(
+    `${BASE_PATH}/pedidos-pendentes`,
+    {
+      params: {
+        page: 0,
+        pageSize: 50,
+      },
+    }
+  );
   return resp.data;
 }
 
+/**
+ * Inicia a conferência de uma nota/pedido.
+ * Backend cria o NUCONF e devolve { nuconf, nunotaOrig }.
+ */
 export async function iniciarConferencia(
   nunotaOrig: number,
   codUsuario: number
@@ -25,7 +39,9 @@ export async function iniciarConferencia(
   return resp.data;
 }
 
-// Finalizar normal (STATUS = F)
+/**
+ * Finaliza conferência sem divergência (STATUS = F).
+ */
 export async function finalizarConferencia(
   nuconf: number,
   codUsuario: number
@@ -36,13 +52,31 @@ export async function finalizarConferencia(
   });
 }
 
-// Finalizar divergente (STATUS = D)
+/**
+ * 🔥 Finaliza conferência com divergência (STATUS = D).
+ * Aqui vamos mandar:
+ *  - nuconf
+ *  - nunotaOrig
+ *  - codUsuario
+ *  - itens com qtdConferida, pra backend ajustar TGFCOI2 e TGFITE.
+ */
 export async function finalizarConferenciaDivergente(
   nuconf: number,
-  codUsuario: number
+  codUsuario: number,
+  nunotaOrig: number,
+  itens: ItemConferenciaUI[]
 ): Promise<void> {
-  await api.post(`${BASE_PATH}/finalizar-divergente`, {
+  const payload = {
     nuconf,
+    nunotaOrig,
     codUsuario,
-  });
+    itens: itens.map((i) => ({
+      sequencia: i.sequencia,
+      codProd: i.codProd,
+      qtdNeg: i.qtdNeg,
+      qtdConferida: i.qtdConferida,
+    })),
+  };
+
+  await api.post(`${BASE_PATH}/finalizar-divergente`, payload);
 }
