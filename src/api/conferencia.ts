@@ -1,5 +1,5 @@
 // src/api/conferencia.ts
-import api from "./client"; // 👈 usa o default export que acabamos de configurar
+import api from "./client";
 import {
   DetalhePedido,
   ConferenciaCriada,
@@ -32,10 +32,14 @@ export async function iniciarConferencia(
   nunotaOrig: number,
   codUsuario: number
 ): Promise<ConferenciaCriada> {
-  const resp = await api.post<ConferenciaCriada>(`${BASE_PATH}/iniciar`, {
-    nunotaOrig,
-    codUsuario,
-  });
+  const payload = { nunotaOrig, codUsuario };
+
+  console.log(
+    "[API] /iniciar - payload enviado:",
+    JSON.stringify(payload, null, 2)
+  );
+
+  const resp = await api.post<ConferenciaCriada>(`${BASE_PATH}/iniciar`, payload);
   return resp.data;
 }
 
@@ -46,19 +50,23 @@ export async function finalizarConferencia(
   nuconf: number,
   codUsuario: number
 ): Promise<void> {
-  await api.post(`${BASE_PATH}/finalizar`, {
-    nuconf,
-    codUsuario,
-  });
+  const payload = { nuconf, codUsuario };
+
+  console.log(
+    "[API] /finalizar - payload enviado:",
+    JSON.stringify(payload, null, 2)
+  );
+
+  await api.post(`${BASE_PATH}/finalizar`, payload);
 }
 
 /**
  * 🔥 Finaliza conferência com divergência (STATUS = D).
- * Aqui vamos mandar:
+ * Envia:
  *  - nuconf
  *  - nunotaOrig
  *  - codUsuario
- *  - itens com qtdConferida, pra backend ajustar TGFCOI2 e TGFITE.
+ *  - itens com qtdNeg (esperada) e qtdConferida (do input).
  */
 export async function finalizarConferenciaDivergente(
   nuconf: number,
@@ -77,6 +85,12 @@ export async function finalizarConferenciaDivergente(
       qtdConferida: i.qtdConferida,
     })),
   };
+
+  // 🔍 LOG PRINCIPAL DO QUE VAI PRO BACKEND
+  console.log(
+    "[API] /finalizar-divergente - payload enviado:",
+    JSON.stringify(payload, null, 2)
+  );
 
   await api.post(`${BASE_PATH}/finalizar-divergente`, payload);
 }

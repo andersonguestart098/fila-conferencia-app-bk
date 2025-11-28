@@ -57,7 +57,7 @@ export async function loadStoredToken(): Promise<string | null> {
 
 // 👇 instancia principal do Axios que o app todo vai usar
 export const api = axios.create({
-  baseURL: "https://api-sankhya-fila-conferencia-6bbe82fb50b8.herokuapp.com", // 👈 IP do NOTE, SEM /api aqui
+  baseURL: "https://api-sankhya-fila-conferencia-6bbe82fb50b8.herokuapp.com",
   timeout: 10000,
 });
 
