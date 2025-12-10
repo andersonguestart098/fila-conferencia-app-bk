@@ -1,5 +1,4 @@
-// src/screens/PedidosPendentesScreen.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -8,11 +7,15 @@ import {
   ActivityIndicator,
   StyleSheet,
   Image,
+  TextInput,
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useFocusEffect } from "@react-navigation/native";
 import { RootStackParamList } from "../navigation/RootNavigator";
 import { DetalhePedido } from "../api/types/conferencia";
 import { buscarPedidosPendentes } from "../api/conferencia";
+import type { FiltroPedidosPendentes } from "../api/conferencia";
+
 import Navbar from "../components/Navbar";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { isOfflineError } from "../api/client";
@@ -53,10 +56,92 @@ const statusColors: Record<
   Z: { bg: "#F3F4F6", border: "#E5E7EB", text: "#4B5563" },
 };
 
+// opções de status para o filtro
+const statusOptions: { label: string; value: string | null }[] = [
+  { label: "Todos", value: null },
+  { label: "Em andamento", value: "A" },
+  { label: "Aguard. conf.", value: "AC" },
+  { label: "Aguard. liberação", value: "AL" },
+  { label: "Finalizada OK", value: "F" },
+  { label: "Divergente", value: "D" },
+];
+
+// tipos de período pro filtro de data
+type PeriodoFiltro = "MES_ATUAL" | "HOJE" | "7_DIAS" | "30_DIAS";
+
+// helper p/ formatar data ISO 'YYYY-MM-DD'
+const formatDate = (d: Date): string => d.toISOString().slice(0, 10);
+
+function getDateRange(periodo: PeriodoFiltro): {
+  dataIni: string | null;
+  dataFim: string | null;
+} {
+  const hoje = new Date();
+
+  if (periodo === "MES_ATUAL") {
+    const ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    const fim = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
+
+    return {
+      dataIni: formatDate(ini),
+      dataFim: formatDate(fim),
+    };
+  }
+
+  const fim = new Date(
+    hoje.getFullYear(),
+    hoje.getMonth(),
+    hoje.getDate()
+  );
+
+  if (periodo === "HOJE") {
+    const ini = fim;
+    return {
+      dataIni: formatDate(ini),
+      dataFim: formatDate(fim),
+    };
+  }
+
+  if (periodo === "7_DIAS") {
+    const ini = new Date(fim);
+    ini.setDate(ini.getDate() - 6);
+    return {
+      dataIni: formatDate(ini),
+      dataFim: formatDate(fim),
+    };
+  }
+
+  if (periodo === "30_DIAS") {
+    const ini = new Date(fim);
+    ini.setDate(ini.getDate() - 29);
+    return {
+      dataIni: formatDate(ini),
+      dataFim: formatDate(fim),
+    };
+  }
+
+  return { dataIni: null, dataFim: null };
+}
+
 export default function PedidosPendentesScreen({ navigation }: Props) {
   const [pedidos, setPedidos] = useState<DetalhePedido[]>([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+
+  const [page, setPage] = useState(0);
+  const [pageSize] = useState(20);
+  const [hasMore, setHasMore] = useState(true);
+
+  // filtros atuais
+  const [statusFiltro, setStatusFiltro] = useState<string | null>(null);
+  const [periodoFiltro, setPeriodoFiltro] =
+    useState<PeriodoFiltro>("MES_ATUAL");
+  const [nunotaFiltro, setNunotaFiltro] = useState<string>("");
+
+  // UI dos filtros
+  const [showFilters, setShowFilters] = useState(false);
+  const [aplicandoFiltros, setAplicandoFiltros] = useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -65,41 +150,41 @@ export default function PedidosPendentesScreen({ navigation }: Props) {
       routes: [{ name: "Login" }],
     });
   };
-  
 
-  // 🔄 botão de tentar novamente / refresh manual
-  const handleRefresh = async () => {
-    try {
-      setLoading(true);
-      setErro(null); // limpa erro anterior
-
-      const atualizados = await buscarPedidosPendentes();
-      setPedidos(atualizados);
-    } catch (e) {
-      console.log("Erro ao recarregar pedidos:", e);
-
-      if (isOfflineError(e)) {
-        setErro("Você está offline. Verifique sua conexão com a internet.");
-      } else {
-        setErro("Erro ao carregar pedidos.");
-      }
-    } finally {
-      setLoading(false);
-    }
+  const montarFiltro = (pagina: number): FiltroPedidosPendentes => {
+    const { dataIni, dataFim } = getDateRange(periodoFiltro);
+    return {
+      page: pagina,
+      pageSize,
+      status: statusFiltro,
+      dataIni,
+      dataFim,
+    };
   };
 
-  useEffect(() => {
-    let ativo = true;
-
-    const carregar = async () => {
+  const carregarPagina = useCallback(
+    async (novaPagina: number) => {
       try {
         setLoading(true);
-        setErro(null); // limpa erro anterior
-        const atualizados = await buscarPedidosPendentes();
-        if (ativo) setPedidos(atualizados);
+        setErro(null);
+
+        const filtro = montarFiltro(novaPagina);
+        console.log("[DEBUG_FILTRO_ENVIADO]", filtro);
+
+        const lista = await buscarPedidosPendentes(filtro);
+
+        console.log(
+          "[DEBUG_PAGINACAO] page=",
+          novaPagina,
+          "qtdePedidos=",
+          lista.length
+        );
+
+        setPedidos(lista);
+        setPage(novaPagina);
+        setHasMore(lista.length > 0);
       } catch (e) {
         console.log("Erro ao carregar pedidos:", e);
-        if (!ativo) return;
 
         if (isOfflineError(e)) {
           setErro("Você está offline. Verifique sua conexão com a internet.");
@@ -107,38 +192,92 @@ export default function PedidosPendentesScreen({ navigation }: Props) {
           setErro("Erro ao carregar pedidos.");
         }
       } finally {
-        if (ativo) setLoading(false);
+        setLoading(false);
+        setRefreshing(false);
+        setAplicandoFiltros(false);
       }
-    };
+    },
+    [pageSize, statusFiltro, periodoFiltro]
+  );
 
-    carregar();
+  /**
+   * 🔁 Auto-refresh enquanto a tela estiver focada
+   * - Recarrega a página atual ao focar
+   * - Atualiza a cada 10 segundos SEM mudar a página
+   */
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
 
-    const interval = setInterval(async () => {
-      try {
-        const atualizados = await buscarPedidosPendentes();
-        if (ativo) setPedidos(atualizados);
-      } catch (e) {
-        console.log("Erro ao atualizar pedidos:", e);
-        if (!ativo) return;
+      console.log(
+        "[PEDIDOS] Tela focada → iniciando auto-refresh na page",
+        page
+      );
 
-        if (isOfflineError(e)) {
-          setErro("Você está offline. Verifique sua conexão com a internet.");
-        }
-        // Mantém a lista antiga enquanto está offline
-      }
-    }, 5000);
+      // carrega logo na entrada a página atual
+      carregarPagina(page);
 
-    return () => {
-      ativo = false;
-      clearInterval(interval);
-    };
-  }, []);
+      const intervalId = setInterval(() => {
+        if (!isActive) return;
+        console.log(
+          "[PEDIDOS] Auto-refresh periódico na page",
+          page
+        );
+        carregarPagina(page);
+      }, 10000);
+
+      return () => {
+        console.log("[PEDIDOS] Tela desfocada → limpando auto-refresh.");
+        isActive = false;
+        clearInterval(intervalId);
+      };
+    }, [carregarPagina, page])
+  );
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await carregarPagina(0);
+  };
+
+  const handleAplicarFiltros = async () => {
+    setAplicandoFiltros(true);
+    setHasMore(true);
+    await carregarPagina(0);
+    setShowFilters(false);
+  };
+
+  const handleLimparFiltros = async () => {
+    setStatusFiltro(null);
+    setPeriodoFiltro("MES_ATUAL");
+    setNunotaFiltro("");
+    setHasMore(true);
+    setShowFilters(false);
+    await carregarPagina(0);
+  };
+
+  const handleIrPaginaAnterior = async () => {
+    if (page === 0 || loading) return;
+    await carregarPagina(page - 1);
+  };
+
+  const handleIrProximaPagina = async () => {
+    if (!hasMore || loading) return;
+    await carregarPagina(page + 1);
+  };
 
   const handlePressPedido = (pedido: DetalhePedido) => {
     navigation.navigate("DetalhePedido", { detalhePedido: pedido });
   };
 
-  if (loading) {
+  const pedidosFiltrados = nunotaFiltro.trim()
+    ? pedidos.filter((p) =>
+        String(p.nunota)
+          .toLowerCase()
+          .includes(nunotaFiltro.trim().toLowerCase())
+      )
+    : pedidos;
+
+  if (loading && pedidos.length === 0 && !refreshing && !aplicandoFiltros) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#3B82F6" />
@@ -147,7 +286,7 @@ export default function PedidosPendentesScreen({ navigation }: Props) {
     );
   }
 
-  if (erro) {
+  if (erro && pedidos.length === 0) {
     return (
       <View style={styles.center}>
         <Text style={styles.errorText}>{erro}</Text>
@@ -165,17 +304,200 @@ export default function PedidosPendentesScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <Navbar
-  title="Conferência"
-  showBack={false}
-  onLogout={handleLogout}
-/>
+      <Navbar title="Fila de Conferência" showBack={false} onLogout={handleLogout} />
 
+      {/* Botão de filtros */}
+      <View style={styles.filtersToggleRow}>
+        <TouchableOpacity
+          style={styles.filterToggleButton}
+          onPress={() => setShowFilters((old) => !old)}
+          activeOpacity={0.9}
+        >
+          <MaterialCommunityIcons
+            name="filter-variant"
+            size={20}
+            color="#111827"
+            style={{ marginRight: 6 }}
+          />
+          <Text style={styles.filterToggleText}>
+            {showFilters ? "Fechar filtros" : "Filtrar"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Painel de filtros (expansível) */}
+      {showFilters && (
+        <View style={styles.filtersContainer}>
+          {/* Filtro de status */}
+          <View style={styles.filterGroup}>
+            <Text style={styles.filterLabel}>Status</Text>
+            <View style={styles.filterChipsRow}>
+              {statusOptions.map((opt) => {
+                const ativo = statusFiltro === opt.value;
+                return (
+                  <TouchableOpacity
+                    key={opt.label}
+                    style={[styles.chip, ativo && styles.chipActive]}
+                    onPress={() => setStatusFiltro(opt.value)}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.chipText,
+                        ativo && styles.chipTextActive,
+                      ]}
+                    >
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Filtro de período */}
+          <View style={styles.filterGroup}>
+            <Text style={styles.filterLabel}>Período</Text>
+            <View style={styles.filterChipsRow}>
+              {[
+                { label: "Mês atual", value: "MES_ATUAL" as PeriodoFiltro },
+                { label: "Hoje", value: "HOJE" as PeriodoFiltro },
+                { label: "7 dias", value: "7_DIAS" as PeriodoFiltro },
+                { label: "30 dias", value: "30_DIAS" as PeriodoFiltro },
+              ].map((opt) => {
+                const ativo = periodoFiltro === opt.value;
+                return (
+                  <TouchableOpacity
+                    key={opt.label}
+                    style={[styles.chip, ativo && styles.chipActive]}
+                    onPress={() => setPeriodoFiltro(opt.value)}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.chipText,
+                        ativo && styles.chipTextActive,
+                      ]}
+                    >
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Filtro por NUNOTA (local) */}
+          <View style={styles.filterGroup}>
+            <Text style={styles.filterLabel}>Nro único (NUNOTA)</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Ex: 15068"
+              keyboardType="numeric"
+              value={nunotaFiltro}
+              onChangeText={setNunotaFiltro}
+            />
+          </View>
+
+          {/* Botões dos filtros */}
+          <View style={styles.filterActionsRow}>
+            <TouchableOpacity
+              style={styles.clearButton}
+              onPress={handleLimparFiltros}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.clearButtonText}>Limpar</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.applyButton}
+              onPress={handleAplicarFiltros}
+              disabled={aplicandoFiltros}
+              activeOpacity={0.8}
+            >
+              {aplicandoFiltros && (
+                <ActivityIndicator
+                  size="small"
+                  color="#FFFFFF"
+                  style={{ marginRight: 6 }}
+                />
+              )}
+              <Text style={styles.applyButtonText}>Aplicar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       <FlatList
-        data={pedidos}
-        keyExtractor={(item) => String(item.nunota)}
+        data={pedidosFiltrados}
+        keyExtractor={(item, index) => `${item.nunota}-${index}`}
         contentContainerStyle={styles.listContent}
+        refreshing={refreshing}
+        onRefresh={handleRefresh}
+        ListFooterComponent={
+          <View>
+            {/* Paginação */}
+            <View style={styles.paginationRow}>
+              <TouchableOpacity
+                style={[
+                  styles.pageButton,
+                  (page === 0 || loading) && styles.pageButtonDisabled,
+                ]}
+                disabled={page === 0 || loading}
+                onPress={handleIrPaginaAnterior}
+              >
+                <Text
+                  style={[
+                    styles.pageButtonText,
+                    (page === 0 || loading) && styles.pageButtonTextDisabled,
+                  ]}
+                >
+                  Anterior
+                </Text>
+              </TouchableOpacity>
+
+              <View style={styles.paginationCenter}>
+                {loading && pedidos.length > 0 && (
+                  <ActivityIndicator
+                    size="small"
+                    color="#6B7280"
+                    style={{ marginRight: 8 }}
+                  />
+                )}
+                <Text style={styles.paginationText}>Página {page + 1}</Text>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.pageButton,
+                  (!hasMore || loading) && styles.pageButtonDisabled,
+                ]}
+                disabled={!hasMore || loading}
+                onPress={handleIrProximaPagina}
+              >
+                <Text
+                  style={[
+                    styles.pageButtonText,
+                    (!hasMore || loading) && styles.pageButtonTextDisabled,
+                  ]}
+                >
+                  Próxima
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Estado vazio */}
+            {pedidosFiltrados.length === 0 && !loading && !erro && (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyEmoji}>📦</Text>
+                <Text style={styles.emptyText}>Nenhum pedido pendente</Text>
+                <Text style={styles.emptySubtext}>
+                  Tudo limpo por aqui ✨
+                </Text>
+              </View>
+            )}
+          </View>
+        }
         renderItem={({ item }) => {
           const emConferencia =
             item.statusConferencia === "A" && !!item.nomeConferente;
@@ -184,22 +506,13 @@ export default function PedidosPendentesScreen({ navigation }: Props) {
           const colors =
             statusColors[item.statusConferencia] || statusColors.AL;
 
-            const nroUnico = item.nunota;
-            const nroNota = item.numNota ?? "-";
+          const nroUnico = item.nunota;
+          const nroNota = item.numNota ?? "-";
 
-            const nomeParcCurto =
+          const nomeParcCurto =
             item.nomeParc && item.nomeParc.length > 28
               ? item.nomeParc.slice(0, 28) + "..."
               : item.nomeParc ?? "";
-
-              <TouchableOpacity
-                onPress={handleLogout}
-                style={styles.logoutButton}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.logoutText}>Sair</Text>
-              </TouchableOpacity>
-
 
           return (
             <TouchableOpacity
@@ -210,7 +523,6 @@ export default function PedidosPendentesScreen({ navigation }: Props) {
               onPress={() => handlePressPedido(item)}
               activeOpacity={0.85}
             >
-              {/* Linha superior: ícone de caixa + número do pedido + avatar */}
               <View style={styles.cardHeader}>
                 <View style={styles.headerLeft}>
                   <MaterialCommunityIcons
@@ -220,20 +532,16 @@ export default function PedidosPendentesScreen({ navigation }: Props) {
                     style={{ marginRight: 10 }}
                   />
                   <View>
-                  <Text style={styles.pedidoLabel}>Pedido</Text>
-                  <Text style={styles.pedidoNumber} numberOfLines={2}>
-                    Nro.Único: #{nroUnico} / Nro.Nota: #{nroNota}
-                  </Text>
-
-                  {item.nomeParc && (
-                    <Text
-                      style={styles.pedidoCliente}
-                      numberOfLines={1}
-                    >
-                      {nomeParcCurto}
+                    <Text style={styles.pedidoLabel}>Pedido</Text>
+                    <Text style={styles.pedidoNumber} numberOfLines={2}>
+                      Nro.Único: #{nroUnico} / Nro.Nota: #{nroNota}
                     </Text>
-                  )}
 
+                    {item.nomeParc && (
+                      <Text style={styles.pedidoCliente} numberOfLines={1}>
+                        {nomeParcCurto}
+                      </Text>
+                    )}
                   </View>
                 </View>
 
@@ -245,7 +553,6 @@ export default function PedidosPendentesScreen({ navigation }: Props) {
                 )}
               </View>
 
-              {/* Status em estilo “pill” */}
               <View
                 style={[
                   styles.statusPill,
@@ -269,7 +576,6 @@ export default function PedidosPendentesScreen({ navigation }: Props) {
                 </Text>
               </View>
 
-              {/* Linha de informações */}
               <View style={styles.infoRow}>
                 <View style={styles.infoItem}>
                   <Text style={styles.infoLabel}>Itens</Text>
@@ -291,7 +597,6 @@ export default function PedidosPendentesScreen({ navigation }: Props) {
                 )}
               </View>
 
-              {/* Aviso de conferência em andamento */}
               {emConferencia && (
                 <View style={styles.conferenteBox}>
                   <Text style={styles.conferenteText}>
@@ -302,15 +607,6 @@ export default function PedidosPendentesScreen({ navigation }: Props) {
             </TouchableOpacity>
           );
         }}
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyEmoji}>📦</Text>
-            <Text style={styles.emptyText}>Nenhum pedido pendente</Text>
-            <Text style={styles.emptySubtext}>
-              Tudo limpo por aqui ✨
-            </Text>
-          </View>
-        }
       />
     </View>
   );
@@ -321,20 +617,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F3F4F6",
   },
-
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-
   loadingText: {
     marginTop: 12,
     fontSize: 15,
     color: "#6B7280",
     fontWeight: "500",
   },
-
   errorText: {
     marginTop: 12,
     fontSize: 16,
@@ -343,7 +636,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: 24,
   },
-
   refreshButton: {
     marginTop: 16,
     paddingHorizontal: 20,
@@ -356,12 +648,116 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 14,
   },
-
+  filtersToggleRow: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  filterToggleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#FFFFFF",
+  },
+  filterToggleText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#111827",
+  },
+  filtersContainer: {
+    marginTop: 6,
+    marginHorizontal: 16,
+    marginBottom: 4,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    borderColor: "#E5E7EB",
+    borderWidth: 1,
+  },
+  filterGroup: {
+    marginBottom: 10,
+  },
+  filterLabel: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginBottom: 4,
+    fontWeight: "500",
+  },
+  filterChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  chip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#FFFFFF",
+  },
+  chipActive: {
+    backgroundColor: "#66CC66",
+    borderColor: "#66CC66",
+  },
+  chipText: {
+    fontSize: 12,
+    color: "#4B5563",
+    fontWeight: "500",
+  },
+  chipTextActive: {
+    color: "#FFFFFF",
+  },
+  searchInput: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: "#F9FAFB",
+    fontSize: 14,
+    color: "#111827",
+  },
+  filterActionsRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginTop: 8,
+    gap: 8,
+  },
+  clearButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#FFFFFF",
+  },
+  clearButtonText: {
+    fontSize: 13,
+    color: "#4B5563",
+    fontWeight: "500",
+  },
+  applyButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#66CC66",
+  },
+  applyButtonText: {
+    fontSize: 13,
+    color: "#FFFFFF",
+    fontWeight: "600",
+  },
   listContent: {
     padding: 16,
     paddingBottom: 32,
   },
-
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
@@ -375,23 +771,19 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 2,
   },
-
   cardEmConferencia: {
-    borderColor: "#3B82F6",
+    borderColor: "#66CC66",
   },
-
   cardHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 12,
   },
-
   headerLeft: {
     flexDirection: "row",
     alignItems: "center",
   },
-
   pedidoLabel: {
     fontSize: 15,
     color: "#9CA3AF",
@@ -399,25 +791,16 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.6,
   },
-
   pedidoNumber: {
     fontSize: 15,
     fontWeight: "600",
     color: "#111827",
   },
-
-  pedidoParc: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#111827",
-  },
-
   pedidoCliente: {
     fontSize: 12,
     color: "#6B7280",
     marginTop: 2,
   },
-
   avatar: {
     width: 40,
     height: 40,
@@ -425,7 +808,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
-
   statusPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -436,30 +818,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 10,
   },
-
   statusDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
     marginRight: 6,
   },
-
   statusText: {
     fontSize: 13,
     fontWeight: "500",
   },
-
   infoRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-end",
     marginTop: 4,
   },
-
   infoItem: {
     maxWidth: "50%",
   },
-
   infoLabel: {
     fontSize: 11,
     color: "#9CA3AF",
@@ -467,65 +844,76 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     marginBottom: 2,
   },
-
   infoValue: {
     fontSize: 16,
     color: "#111827",
     fontWeight: "600",
   },
-
   infoValueSmall: {
     fontSize: 14,
     color: "#111827",
     fontWeight: "500",
   },
-
   conferenteBox: {
     marginTop: 10,
     paddingVertical: 8,
   },
-
   conferenteText: {
     fontSize: 12,
     color: "#4B5563",
   },
-
   emptyState: {
     alignItems: "center",
-    marginTop: 60,
+    marginTop: 32,
+    marginBottom: 16,
   },
-
   emptyEmoji: {
     fontSize: 52,
     marginBottom: 10,
   },
-
   emptyText: {
     fontSize: 18,
     fontWeight: "600",
     color: "#111827",
   },
-
   emptySubtext: {
     marginTop: 4,
     fontSize: 14,
     color: "#6B7280",
   },
-  logoutButton: {
-    position: "absolute",
-    top: 16,
-    right: 16,
-    backgroundColor: "#EF4444",
-    paddingHorizontal: 16,
+  paginationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  pageButton: {
+    paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 999,
-    zIndex: 999,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#FFFFFF",
   },
-  
-  logoutText: {
-    color: "#FFFFFF",
-    fontWeight: "600",
-    fontSize: 14,
+  pageButtonDisabled: {
+    opacity: 0.5,
   },
-  
+  pageButtonText: {
+    fontSize: 13,
+    color: "#111827",
+    fontWeight: "500",
+  },
+  pageButtonTextDisabled: {
+    color: "#9CA3AF",
+  },
+  paginationCenter: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  paginationText: {
+    fontSize: 13,
+    color: "#4B5563",
+    fontWeight: "500",
+  },
 });

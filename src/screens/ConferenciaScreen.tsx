@@ -7,13 +7,14 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
+  ActivityIndicator,
   Alert,
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/RootNavigator";
 import {
   DetalhePedido,
-  ItemConferenciaUI, // 👈 já vem com qtdConferida + conferido
+  ItemConferenciaUI,
 } from "../api/types/conferencia";
 import {
   finalizarConferencia,
@@ -46,6 +47,8 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
   );
 
   const [salvando, setSalvando] = useState(false);
+  const [modalDivergenteVisivel, setModalDivergenteVisivel] = useState(false);
+  const [modalSucessoVisivel, setModalSucessoVisivel] = useState(false);
 
   const toggleConferido = (codProd: number, sequencia: number) => {
     setItens((prev) =>
@@ -72,15 +75,41 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
     );
   };
 
-  // todos os itens precisam estar conferidos p/ liberar o botão
+  // ✅ marcar todos como conferidos
+  const marcarTodosComoConferidos = () => {
+    setItens((prev) =>
+      prev.map((item) => {
+        const base = getQtdBase(item);
+        const qtdAtual =
+          item.qtdConferida === undefined || item.qtdConferida === null
+            ? base
+            : item.qtdConferida;
+        return {
+          ...item,
+          conferido: true,
+          qtdConferida: qtdAtual,
+        };
+      })
+    );
+  };
+
+  // todos os itens precisam estar conferidos p/ liberar o botão de finalizar
   const todosConferidos =
     itens.length > 0 && itens.every((i) => i.conferido === true);
+
+  // 🔍 existe algum item ainda não conferido? (pra habilitar o botão geral)
+  const existeNaoConferido = itens.some((i) => !i.conferido);
 
   // 🚨 existe algum item com qtdConferida > qtdBase?
   const existeQtdMaior = itens.some((i) => {
     const base = getQtdBase(i);
     return (i.qtdConferida ?? 0) > base;
   });
+
+  // 🔴 saber se a conferência atual tem corte/divergente
+  const temDivergente = itens.some(
+    (i) => (i.qtdConferida ?? 0) < getQtdBase(i)
+  );
 
   const handleFinalizar = async () => {
     if (!todosConferidos) {
@@ -102,12 +131,6 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
     try {
       setSalvando(true);
 
-      // cálculo normal (só pra log mesmo)
-      const temDivergente = itens.some(
-        (i) => (i.qtdConferida ?? 0) < getQtdBase(i)
-      );
-
-      // 🔍 LOG COMPLETO DO QUE ESTAMOS FINALIZANDO
       console.log(
         "[ConferenciaScreen] Iniciando finalização",
         JSON.stringify(
@@ -115,6 +138,7 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
             nuconf,
             nunotaOrig: detalhePedido.nunota,
             temDivergente,
+            tipoFinalizacao: temDivergente ? "DIVERGENTE" : "NORMAL",
             itens,
           },
           null,
@@ -122,25 +146,32 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
         )
       );
 
-      // aqui você decidiu sempre usar o fluxo que manda itens + quantidades
-      await finalizarConferenciaDivergente(
-        nuconf,
-        COD_USUARIO_EXEMPLO,
-        detalhePedido.nunota,
-        itens
-      );
+      if (temDivergente) {
+        // 🔴 Tem corte → chama rota divergente
+        await finalizarConferenciaDivergente(
+          nuconf,
+          COD_USUARIO_EXEMPLO,
+          detalhePedido.nunota,
+          itens
+        );
+        console.log(
+          "[ConferenciaScreen] Finalização DIVERGENTE - nuconf:",
+          nuconf
+        );
 
-      console.log(
-        "[ConferenciaScreen] Finalização (fluxo com itens) - nuconf:",
-        nuconf
-      );
+        // Ao invés de Alert, abre modal branco elegante
+        setModalDivergenteVisivel(true);
+      } else {
+        // ✅ Sem corte → chama rota normal (/finalizar)
+        await finalizarConferencia(nuconf, COD_USUARIO_EXEMPLO);
+        console.log(
+          "[ConferenciaScreen] Finalização NORMAL - nuconf:",
+          nuconf
+        );
 
-      Alert.alert("Sucesso", "Conferência finalizada.", [
-        {
-          text: "OK",
-          onPress: () => navigation.popToTop(),
-        },
-      ]);
+        // Modal branco de sucesso com check verde
+        setModalSucessoVisivel(true);
+      }
     } catch (e) {
       console.error(e);
       Alert.alert("Erro", "Erro ao finalizar conferência.");
@@ -173,10 +204,8 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
             Cod: {item.codProd} - {item.descricao}
           </Text>
 
-          {/* linha com seq, valor unitário e unidade */}
           <Text style={styles.itemSubtitle}>Seq: {item.sequencia}</Text>
 
-          {/* quantidade esperada com unidade */}
           <Text style={[styles.itemSubtitle, { fontWeight: "bold" }]}>
             Esperado: {qtdBase}{" "}
             <Text style={{ fontWeight: "bold" }}>{item.unidade}</Text>
@@ -206,7 +235,7 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
           <TextInput
             style={[
               styles.qtdInput,
-              qtdMaior && styles.qtdInputErro, // borda vermelha se maior
+              qtdMaior && styles.qtdInputErro,
             ]}
             keyboardType="numeric"
             value={String(qtdConferidaNum)}
@@ -219,24 +248,128 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
     );
   };
 
-  // número “bonito” pro cabeçalho: usa numNota se vier, senão nunota
-  const numeroExibicao = (detalhePedido as any).numNota ?? detalhePedido.nunota;
+  const numeroExibicao =
+    (detalhePedido as any).numNota ?? detalhePedido.nunota;
   const nomeParc = (detalhePedido as any).nomeParc;
 
-  // botão desabilitado se:
-  // - salvando
-  // - ainda tem item não conferido
-  // - OU existe item com qtd maior que a original
   const buttonDisabled = salvando || !todosConferidos || existeQtdMaior;
 
   return (
     <View style={styles.container}>
       <Navbar title="Conferência" showBack />
 
+      {/* 🔄 Modal branco enquanto está salvando (sempre a mesma frase) */}
+      {salvando && (
+        <View style={styles.fullscreenOverlay}>
+          <View style={styles.overlayBox}>
+            <ActivityIndicator size="large" color="#66CC66" />
+            <Text style={styles.overlayText}>Finalizando conferência...</Text>
+            <Text style={styles.overlaySubText}>
+              Pedido #{numeroExibicao}
+              {nomeParc ? ` · ${nomeParc}` : ""}
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* ✅ Modal branco após finalização DIVERGENTE */}
+      {modalDivergenteVisivel && (
+        <View style={styles.fullscreenOverlay}>
+          <View style={styles.overlayBox}>
+            <Ionicons
+              name="alert-circle-outline"
+              size={40}
+              color="#FF9800"
+            />
+            <Text style={styles.overlayText}>Conferência divergente</Text>
+            <Text style={styles.overlaySubText}>
+              Pedido #{numeroExibicao}
+              {nomeParc ? ` · ${nomeParc}` : ""}
+            </Text>
+            <Text style={styles.overlaySubText}>
+              A conferência foi finalizada como divergente.{"\n"}
+              Por favor, conclua o corte dos itens pela interface de
+              conferência da Sankhya antes de faturar o pedido.
+            </Text>
+
+            <TouchableOpacity
+              style={styles.overlayButton}
+              activeOpacity={0.85}
+              onPress={() => {
+                setModalDivergenteVisivel(false);
+                navigation.popToTop();
+              }}
+            >
+              <Text style={styles.overlayButtonText}>OK, entendi</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* ✅ Modal branco após finalização NORMAL (ok) */}
+      {modalSucessoVisivel && (
+        <View style={styles.fullscreenOverlay}>
+          <View style={styles.overlayBox}>
+            <Ionicons
+              name="checkmark-circle"
+              size={40}
+              color="#66CC66"
+            />
+            <Text style={styles.overlayText}>Conferência finalizada</Text>
+            <Text style={styles.overlaySubText}>
+              Pedido #{numeroExibicao}
+              {nomeParc ? ` · ${nomeParc}` : ""}
+            </Text>
+            <Text style={styles.overlaySubText}>
+              A conferência foi finalizada com sucesso.
+            </Text>
+
+            <TouchableOpacity
+              style={styles.overlayButton}
+              activeOpacity={0.85}
+              onPress={() => {
+                setModalSucessoVisivel(false);
+                navigation.popToTop();
+              }}
+            >
+              <Text style={styles.overlayButtonText}>OK, continuar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       <View style={styles.content}>
         <Text style={styles.header}>Pedido #{numeroExibicao}</Text>
 
         {nomeParc && <Text style={styles.subHeader}>{nomeParc}</Text>}
+
+        {/* 🔘 Botão para marcar todos como conferidos */}
+        <View style={styles.bulkActionsRow}>
+          <TouchableOpacity
+            style={[
+              styles.bulkButton,
+              !existeNaoConferido && styles.bulkButtonDisabled,
+            ]}
+            onPress={marcarTodosComoConferidos}
+            disabled={!existeNaoConferido || salvando}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name="checkmark-done"
+              size={18}
+              color={existeNaoConferido ? "#FFFFFF" : "#E5E7EB"}
+              style={{ marginRight: 6 }}
+            />
+            <Text
+              style={[
+                styles.bulkButtonText,
+                !existeNaoConferido && styles.bulkButtonTextDisabled,
+              ]}
+            >
+              Marcar todos como conferidos
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         {existeQtdMaior && (
           <View style={styles.globalAlertBox}>
@@ -267,9 +400,10 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
         style={[styles.button, buttonDisabled && styles.buttonDisabled]}
         onPress={handleFinalizar}
         disabled={buttonDisabled}
+        activeOpacity={0.85}
       >
         <Text style={styles.buttonText}>
-          {salvando ? "Salvando..." : "Finalizar Conferência"}
+          {salvando ? "Finalizando conferência..." : "Finalizar Conferência"}
         </Text>
       </TouchableOpacity>
     </View>
@@ -286,8 +420,35 @@ const styles = StyleSheet.create({
   subHeader: {
     fontSize: 14,
     color: "#555",
-    marginBottom: 12,
+    marginBottom: 8,
   },
+
+  // 🔘 estilos do botão "marcar todos"
+  bulkActionsRow: {
+    flexDirection: "row",
+    justifyContent: "flex-start",
+    marginBottom: 8,
+  },
+  bulkButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#66CC66",
+  },
+  bulkButtonDisabled: {
+    backgroundColor: "#9CA3AF",
+  },
+  bulkButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+    fontSize: 13,
+  },
+  bulkButtonTextDisabled: {
+    color: "#E5E7EB",
+  },
+
   globalAlertBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -354,6 +515,50 @@ const styles = StyleSheet.create({
     borderColor: "#FF9800",
     borderWidth: 2,
   },
+
+  // 🔄 modal branco (sem fundo escuro)
+  fullscreenOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 20,
+    backgroundColor: "transparent",
+  },
+  overlayBox: {
+    backgroundColor: "#fff",
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    alignItems: "center",
+    width: "78%",
+    elevation: 4,
+  },
+  overlayText: {
+    marginTop: 12,
+    textAlign: "center",
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+  },
+  overlaySubText: {
+    marginTop: 6,
+    textAlign: "center",
+    fontSize: 14,
+    color: "#555",
+  },
+  overlayButton: {
+    marginTop: 16,
+    backgroundColor: "#66CC66",
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderRadius: 999,
+  },
+  overlayButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 16,
+  },
+
   button: {
     position: "absolute",
     bottom: 60,
@@ -363,7 +568,9 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 999,
     alignItems: "center",
+    justifyContent: "center",
     elevation: 3,
+    flexDirection: "row",
   },
   buttonDisabled: {
     backgroundColor: "#A3E0A3",

@@ -1,32 +1,61 @@
 // src/api/conferencia.ts
-import api from "./client";
+import api, { isOfflineError } from "./client";
 import {
   DetalhePedido,
   ConferenciaCriada,
   ItemConferenciaUI,
 } from "./types/conferencia";
+import { enqueueOfflineMutation } from "./offlineQueue";
 
 const BASE_PATH = "/api/conferencia";
 
 /**
- * Busca pedidos pendentes de conferência, paginados.
+ * Filtros para busca de pedidos pendentes.
+ *
+ * dataIni / dataFim no formato "YYYY-MM-DD"
  */
-export async function buscarPedidosPendentes(): Promise<DetalhePedido[]> {
+export type FiltroPedidosPendentes = {
+  page?: number;
+  pageSize?: number;
+  status?: string | null; // ex: "A", "AC", "F", etc.
+  dataIni?: string | null; // "2025-12-01"
+  dataFim?: string | null; // "2025-12-31"
+};
+
+/**
+ * Busca pedidos pendentes de conferência, paginados e com filtros.
+ */
+export async function buscarPedidosPendentes(
+  filtro: FiltroPedidosPendentes = {}
+): Promise<DetalhePedido[]> {
+  const {
+    page = 0,
+    pageSize = 20,
+    status = null,
+    dataIni = null,
+    dataFim = null,
+  } = filtro;
+
+  const params: Record<string, any> = {
+    page,
+    pageSize,
+  };
+
+  if (status) params.status = status;
+  if (dataIni) params.dataIni = dataIni;
+  if (dataFim) params.dataFim = dataFim;
+
   const resp = await api.get<DetalhePedido[]>(
     `${BASE_PATH}/pedidos-pendentes`,
-    {
-      params: {
-        page: 0,
-        pageSize: 50,
-      },
-    }
+    { params }
   );
+
   return resp.data;
 }
 
 /**
  * Inicia a conferência de uma nota/pedido.
- * Backend cria o NUCONF e devolve { nuconf, nunotaOrig }.
+ * (aqui deixamos online-only mesmo)
  */
 export async function iniciarConferencia(
   nunotaOrig: number,
@@ -39,12 +68,16 @@ export async function iniciarConferencia(
     JSON.stringify(payload, null, 2)
   );
 
-  const resp = await api.post<ConferenciaCriada>(`${BASE_PATH}/iniciar`, payload);
+  const resp = await api.post<ConferenciaCriada>(
+    `${BASE_PATH}/iniciar`,
+    payload
+  );
   return resp.data;
 }
 
 /**
  * Finaliza conferência sem divergência (STATUS = F).
+ * Se estiver offline, enfileira a requisição e retorna void mesmo assim.
  */
 export async function finalizarConferencia(
   nuconf: number,
@@ -57,16 +90,28 @@ export async function finalizarConferencia(
     JSON.stringify(payload, null, 2)
   );
 
-  await api.post(`${BASE_PATH}/finalizar`, payload);
+  try {
+    await api.post(`${BASE_PATH}/finalizar`, payload);
+  } catch (e) {
+    if (isOfflineError(e)) {
+      console.log(
+        "[API] /finalizar - offline detectado, enfileirando mutação..."
+      );
+      await enqueueOfflineMutation({
+        method: "POST",
+        url: `${BASE_PATH}/finalizar`,
+        body: payload,
+      });
+      // considera sucesso local: a fila vai enviar quando voltar a internet
+      return;
+    }
+    throw e;
+  }
 }
 
 /**
- * 🔥 Finaliza conferência com divergência (STATUS = D).
- * Envia:
- *  - nuconf
- *  - nunotaOrig
- *  - codUsuario
- *  - itens com qtdNeg (esperada) e qtdConferida (do input).
+ * Finaliza conferência com divergência (STATUS = D).
+ * Se estiver offline, também enfileira pra enviar depois.
  */
 export async function finalizarConferenciaDivergente(
   nuconf: number,
@@ -86,11 +131,25 @@ export async function finalizarConferenciaDivergente(
     })),
   };
 
-  // 🔍 LOG PRINCIPAL DO QUE VAI PRO BACKEND
   console.log(
     "[API] /finalizar-divergente - payload enviado:",
     JSON.stringify(payload, null, 2)
   );
 
-  await api.post(`${BASE_PATH}/finalizar-divergente`, payload);
+  try {
+    await api.post(`${BASE_PATH}/finalizar-divergente`, payload);
+  } catch (e) {
+    if (isOfflineError(e)) {
+      console.log(
+        "[API] /finalizar-divergente - offline detectado, enfileirando mutação..."
+      );
+      await enqueueOfflineMutation({
+        method: "POST",
+        url: `${BASE_PATH}/finalizar-divergente`,
+        body: payload,
+      });
+      return;
+    }
+    throw e;
+  }
 }

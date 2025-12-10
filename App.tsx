@@ -1,6 +1,6 @@
 // App.tsx
 import React, { useEffect, useState } from "react";
-import { View, ActivityIndicator } from "react-native";
+import { View, ActivityIndicator, AppState } from "react-native";
 import RootNavigator, {
   RootStackParamList,
 } from "./src/navigation/RootNavigator";
@@ -9,16 +9,16 @@ import Constants from "expo-constants";
 import { setupFcmListeners } from "./src/api/firebase/fcm-listener";
 import { loadStoredToken } from "./src/api/client";
 import { registrarFcmToken } from "./src/api/firebase/messaging";
+import { startOfflineQueueBackgroundFlush, flushOfflineMutations } from "./src/api/offlineQueue";
 
 type RouteName = keyof RootStackParamList;
 
-// Handler global das notificações locais / push
+// handler de notificações (como você já tinha)
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
-    // iOS 16+ / web
     shouldShowBanner: true,
     shouldShowList: true,
   }),
@@ -36,7 +36,10 @@ export default function App() {
       try {
         const isExpoGo = Constants.appOwnership === "expo";
 
-        // 1) Registra listeners FCM (somente fora do Expo Go)
+        // 🔄 inicia flush periódico da fila offline
+        startOfflineQueueBackgroundFlush(15000);
+
+        // 1) FCM listeners
         if (!isExpoGo) {
           console.log("[APP] Registrando listeners FCM...");
           setupFcmListeners();
@@ -44,15 +47,15 @@ export default function App() {
           console.log("[APP] Rodando no Expo Go, pulando listeners FCM.");
         }
 
-        // 2) Verifica se existe token de autenticação salvo
+        // 2) Token de sessão
         const token = await loadStoredToken();
         console.log("[APP] Token de sessão carregado?", !!token);
 
-        // 3) Se usuário logado e não estamos no Expo Go, registra/atualiza FCM token
+        // 3) Se usuário logado e não está no Expo Go, registra/atualiza FCM token
         if (token && !isExpoGo) {
           try {
             console.log("[APP] Registrando FCM token no backend...");
-            await registrarFcmToken(); // versão sem usuárioId
+            await registrarFcmToken();
           } catch (err) {
             console.log("[APP] Erro ao registrar FCM token:", err);
           }
@@ -62,14 +65,16 @@ export default function App() {
           );
         }
 
-        // 4) Decide rota inicial
+        // 4) Tenta dar um flush da fila logo na subida
+        await flushOfflineMutations();
+
+        // 5) Decide rota inicial
         if (isMounted) {
           setInitialRouteName(token ? "PedidosPendentes" : "Login");
         }
       } catch (err) {
         console.log("[APP] Erro no init:", err);
         if (isMounted) {
-          // fallback seguro
           setInitialRouteName("Login");
         }
       }
@@ -77,12 +82,21 @@ export default function App() {
 
     init();
 
+    // opcional: flush quando voltar pro foreground
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        flushOfflineMutations().catch((err) =>
+          console.log("[APP] erro ao flush ao voltar pro foreground:", err)
+        );
+      }
+    });
+
     return () => {
       isMounted = false;
+      sub.remove();
     };
   }, []);
 
-  // Enquanto não sabemos qual rota inicial usar, mostra um loading
   if (!initialRouteName) {
     return (
       <View
@@ -98,6 +112,5 @@ export default function App() {
     );
   }
 
-  // RootNavigator precisa aceitar a prop initialRouteName
   return <RootNavigator initialRouteName={initialRouteName} />;
 }

@@ -1,3 +1,4 @@
+// src/screens/DetalhePedidoScreen.tsx
 import React, { useState } from "react";
 import {
   View,
@@ -6,13 +7,13 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
 } from "react-native";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/RootNavigator";
 import { DetalhePedido } from "../api/types/conferencia";
 import { iniciarConferencia } from "../api/conferencia";
 import Navbar from "../components/Navbar";
+import { Ionicons } from "@expo/vector-icons";
 
 type Props = NativeStackScreenProps<RootStackParamList, "DetalhePedido">;
 
@@ -40,6 +41,9 @@ export default function DetalhePedidoScreen({ route, navigation }: Props) {
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
+  const [modalEmAndamentoVisivel, setModalEmAndamentoVisivel] =
+    useState(false);
+
   const executarInicioConferencia = async () => {
     try {
       setLoading(true);
@@ -60,22 +64,9 @@ export default function DetalhePedidoScreen({ route, navigation }: Props) {
   };
 
   const handleIrParaConferencia = () => {
-    // Se já está em andamento, avisa antes
+    // Se já está em andamento, mostra modal elegante
     if (detalhe.statusConferencia === "A") {
-      Alert.alert(
-        "Conferência em andamento",
-        "Já existe uma conferência em andamento para este pedido. Deseja continuar mesmo assim?",
-        [
-          { text: "Cancelar", style: "cancel" },
-          {
-            text: "Continuar",
-            style: "destructive",
-            onPress: () => {
-              executarInicioConferencia();
-            },
-          },
-        ]
-      );
+      setModalEmAndamentoVisivel(true);
     } else {
       executarInicioConferencia();
     }
@@ -119,8 +110,12 @@ export default function DetalhePedidoScreen({ route, navigation }: Props) {
     detalhe.statusConferencia ||
     "-";
 
-  // 🔒 Não permitir iniciar conferência se já estiver finalizada OK
+  // 🔒 Regras de bloqueio do botão
   const isFinalizadaOk = detalhe.statusConferencia === "F";
+  const isAguardandoCorte = detalhe.statusConferencia === "C"; // C = aguardando liberação de corte
+  const botaoDesabilitado = isFinalizadaOk || isAguardandoCorte;
+
+  const nomeParc = (detalhe as any).nomeParc;
 
   return (
     <View style={styles.container}>
@@ -166,16 +161,67 @@ export default function DetalhePedidoScreen({ route, navigation }: Props) {
         <TouchableOpacity
           style={[
             styles.button,
-            isFinalizadaOk && styles.buttonDisabled,
+            botaoDesabilitado && styles.buttonDisabled,
           ]}
-          onPress={!isFinalizadaOk ? handleIrParaConferencia : undefined}
-          disabled={isFinalizadaOk}
+          onPress={!botaoDesabilitado ? handleIrParaConferencia : undefined}
+          disabled={botaoDesabilitado}
         >
           <Text style={styles.buttonText}>
-            {isFinalizadaOk ? "Conferência finalizada" : "Iniciar Conferência"}
+            {isFinalizadaOk
+              ? "Conferência finalizada"
+              : isAguardandoCorte
+              ? "Aguardando liberação de corte"
+              : "Iniciar Conferência"}
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* ✅ Modal branco para "Conferência em andamento" */}
+      {modalEmAndamentoVisivel && (
+        <View style={styles.fullscreenOverlay}>
+          <View style={styles.overlayBox}>
+            <Ionicons
+              name="time-outline"
+              size={40}
+              color="#F59E0B"
+            />
+            <Text style={styles.overlayText}>Conferência em andamento</Text>
+            <Text style={styles.overlaySubText}>
+              Pedido #{detalhe.nunota}
+              {nomeParc ? ` · ${nomeParc}` : ""}
+            </Text>
+            <Text style={styles.overlaySubText}>
+              Já existe uma conferência em andamento para este pedido.{"\n"}
+              Você deseja continuar mesmo assim?
+            </Text>
+
+            <View style={styles.overlayActionsRow}>
+              <TouchableOpacity
+                style={styles.overlayButtonSecondary}
+                activeOpacity={0.85}
+                onPress={() => setModalEmAndamentoVisivel(false)}
+              >
+                <Text style={styles.overlayButtonTextSecondary}>
+                  Cancelar
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.overlayButton}
+                activeOpacity={0.85}
+                onPress={() => {
+                  setModalEmAndamentoVisivel(false);
+                  executarInicioConferencia();
+                }}
+              >
+                <Text style={styles.overlayButtonText}>
+                  Continuar assim mesmo
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -248,4 +294,70 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   buttonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
+
+  // 🔄 modal branco padrão
+  fullscreenOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 20,
+    backgroundColor: "transparent",
+  },
+  overlayBox: {
+    backgroundColor: "#fff",
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    alignItems: "center",
+    width: "78%",
+    elevation: 4,
+  },
+  overlayText: {
+    marginTop: 12,
+    textAlign: "center",
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+  },
+  overlaySubText: {
+    marginTop: 6,
+    textAlign: "center",
+    fontSize: 14,
+    color: "#555",
+  },
+  overlayActionsRow: {
+    flexDirection: "row",
+    marginTop: 16,
+    width: "100%",
+  },
+  overlayButton: {
+    flex: 1,
+    backgroundColor: "#66CC66",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    alignItems: "center",
+    marginLeft: 6,
+  },
+  overlayButtonSecondary: {
+    flex: 1,
+    backgroundColor: "#E5E7EB",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    alignItems: "center",
+    marginRight: 6,
+  },
+  overlayButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 13,
+    textAlign: "center",
+  },
+  overlayButtonTextSecondary: {
+    color: "#374151",
+    fontWeight: "600",
+    fontSize: 13,
+    textAlign: "center",
+  },
 });
