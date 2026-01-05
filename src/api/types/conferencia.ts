@@ -1,5 +1,10 @@
 // src/api/types/conferencia.ts
 
+export type Conferente = {
+  codUsuario: number; // ✅ igual ao backend
+  nome: string;       // ✅ igual ao backend
+};
+
 export interface ItemConferencia {
   sequencia: number;
   codProd: number;
@@ -10,31 +15,36 @@ export interface ItemConferencia {
   vlrTot: number;
 }
 
-/**
- * Versão usada na tela de conferência:
- * - adiciona a quantidade conferida pelo usuário
- * - flag se o item foi conferido
- */
 export interface ItemConferenciaUI extends ItemConferencia {
   qtdConferida: number;
   conferido: boolean;
 }
 
+/**
+ * Pedido / Detalhe do pedido
+ * (campos opcionais pra não quebrar caso o backend não mande tudo em todos endpoints)
+ */
 export interface DetalhePedido {
-  nunota: number;                 // NUNOTA (chave interna)
-  numNota?: number;               // NUMNOTA (nº da NF, ex: 463)
-  nomeParc?: string;              // Nome do cliente/parceiro
+  nunota: number;
+  numNota?: number;
+  nomeParc?: string;
+
   statusConferencia: string;
+
+  // ✅ Se o backend devolve o conferente, estes são os nomes mais úteis:
+  conferenteId?: number | null;       // codUsuario
+  conferenteNome?: string | null;     // nome
+
+  // ✅ Se em algum endpoint antigo vier assim, mantém compat:
   nomeConferente?: string | null;
+
   avatarUrlConferente?: string | null;
+
   itens: ItemConferencia[];
 }
 
-// se você quiser ainda ter um tipo "Pedido" pra lista,
-// pode simplesmente reusar:
 export type Pedido = DetalhePedido;
 
-// resposta do /conferencia/iniciar
 export interface ConferenciaCriada {
   nuconf: number;
   nunotaOrig: number;

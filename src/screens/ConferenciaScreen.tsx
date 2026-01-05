@@ -287,7 +287,6 @@ export default function ConferenciaScreen({ route, navigation }: Props) {
               {nomeParc ? ` · ${nomeParc}` : ""}
             </Text>
             <Text style={styles.overlaySubText}>
-              A conferência foi finalizada como divergente.{"\n"}
               Por favor, conclua o corte dos itens pela interface de
               conferência da Sankhya antes de faturar o pedido.
             </Text>
